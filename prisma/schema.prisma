@@ -1,0 +1,329 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "go run github.com/steebchen/prisma-client-go"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  merchant
+  buyer
+  admin
+}
+
+model User {
+  id                String           @id @default(uuid()) @db.VarChar(36)
+  phone             String?          @unique @db.VarChar(20)
+  email             String?          @unique @db.VarChar(255)
+  passwordHash      String?          @map("password_hash") @db.VarChar(255)
+  name              String?          @db.VarChar(255)
+  role              Role
+  nombaAccountId    String?          @map("nomba_account_id") @db.VarChar(100)
+  bankCode          String?          @map("bank_code") @db.VarChar(10)
+  bankAccountNumber String?          @map("bank_account_number") @db.VarChar(20)
+  bankAccountName   String?          @map("bank_account_name") @db.VarChar(255)
+  workscore         Int              @default(0)
+  disputeScore      Decimal          @default(100.00) @map("dispute_score") @db.Decimal(5, 2)
+  createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamp(0)
+  updatedAt         DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamp(0)
+  refreshTokens     RefreshToken[]
+  jobsAsMerchant    Job[]            @relation("MerchantJobs")
+  jobsAsBuyer       Job[]            @relation("BuyerJobs")
+  resolvedDisputes  Dispute[]        @relation("ResolvedDisputes")
+  buyerDisputes     Dispute[]        @relation("BuyerDisputes")
+  workscoreEvents   WorkscoreEvent[]
+  notifications     Notification[]
+  checkins          Checkin[]
+
+  @@map("users")
+}
+
+model OtpCode {
+  id        String   @id @default(uuid()) @db.VarChar(36)
+  email     String   @db.VarChar(255)
+  code      String   @db.VarChar(6)
+  expiresAt DateTime @map("expires_at") @db.Timestamp(0)
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(0)
+
+  @@map("otp_codes")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid()) @db.VarChar(36)
+  userId    String   @map("user_id") @db.VarChar(36)
+  tokenHash String   @map("token_hash") @db.VarChar(255)
+  revoked   Boolean  @default(false)
+  expiresAt DateTime @map("expires_at") @db.Timestamp(0)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(0)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("refresh_tokens")
+}
+
+enum ProofType {
+  photo
+  artifact
+  dual_checkin
+  spec_locked
+  functional_signoff
+}
+
+enum JobStatus {
+  created
+  funded
+  in_progress
+  proof_submitted
+  approved
+  disputed
+  paid_out
+  closed
+  cancelled
+}
+
+enum Resolution {
+  merchant_wins
+  buyer_wins
+}
+
+model Job {
+  id                String          @id @default(uuid()) @db.VarChar(36)
+  merchantId        String          @map("merchant_id") @db.VarChar(36)
+  buyerId           String?         @map("buyer_id") @db.VarChar(36)
+  title             String          @db.VarChar(255)
+  description       String?         @db.Text
+  amountKobo        BigInt          @map("amount_kobo")
+  advanceDrawnKobo  BigInt          @default(0) @map("advance_drawn_kobo")
+  proofType         ProofType       @map("proof_type")
+  reviewWindowHours Int             @default(72) @map("review_window_hours")
+  status            JobStatus       @default(created)
+  specHash          String?         @map("spec_hash") @db.VarChar(64)
+  shareLink         String?         @map("share_link") @db.VarChar(500)
+  proofSubmittedAt  DateTime?       @map("proof_submitted_at") @db.Timestamp(0)
+  reviewDeadlineAt  DateTime?       @map("review_deadline_at") @db.Timestamp(0)
+  resolvedAt        DateTime?       @map("resolved_at") @db.Timestamp(0)
+  resolution        Resolution?
+  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamp(0)
+  updatedAt         DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamp(0)
+  merchant          User            @relation("MerchantJobs", fields: [merchantId], references: [id])
+  buyer             User?           @relation("BuyerJobs", fields: [buyerId], references: [id])
+  escrowAccount     EscrowAccount?
+  payouts           Payout[]
+  proofArtifacts    ProofArtifact[]
+  checkins          Checkin[]
+  dispute           Dispute?
+  workscoreEvents   WorkscoreEvent[]
+  notifications     Notification[]
+
+  @@index([status], map: "idx_status")
+  @@index([merchantId], map: "idx_merchant")
+  @@index([buyerId], map: "idx_buyer")
+  @@index([reviewDeadlineAt], map: "idx_review_deadline")
+  @@map("jobs")
+}
+
+enum EscrowStatus {
+  awaiting_payment
+  funded
+  over_paid
+  under_paid
+  refunded
+}
+
+model EscrowAccount {
+  id                   String       @id @default(uuid()) @db.VarChar(36)
+  jobId                String       @unique @map("job_id") @db.VarChar(36)
+  virtualAccountNumber String       @map("virtual_account_number") @db.VarChar(20)
+  bankName             String       @map("bank_name") @db.VarChar(100)
+  accountName          String       @map("account_name") @db.VarChar(255)
+  nombaAccountRef      String       @map("nomba_account_ref") @db.VarChar(100)
+  expectedAmountKobo   BigInt       @map("expected_amount_kobo")
+  receivedAmountKobo   BigInt       @default(0) @map("received_amount_kobo")
+  status               EscrowStatus @default(awaiting_payment)
+  fundedAt             DateTime?    @map("funded_at") @db.Timestamp(0)
+  createdAt            DateTime     @default(now()) @map("created_at") @db.Timestamp(0)
+  job                  Job          @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@map("escrow_accounts")
+}
+
+enum PayoutType {
+  advance
+  final_payout
+  refund
+}
+
+enum NombaTransferStatus {
+  pending
+  successful
+  failed
+}
+
+model Payout {
+  id                     String              @id @default(uuid()) @db.VarChar(36)
+  jobId                  String              @map("job_id") @db.VarChar(36)
+  type                   PayoutType
+  amountKobo             BigInt              @map("amount_kobo")
+  feeKobo                BigInt              @default(0) @map("fee_kobo")
+  recipientAccountNumber String?             @map("recipient_account_number") @db.VarChar(20)
+  recipientBankCode      String?             @map("recipient_bank_code") @db.VarChar(10)
+  recipientAccountName   String?             @map("recipient_account_name") @db.VarChar(255)
+  merchantTxRef          String              @unique @map("merchant_tx_ref") @db.VarChar(100)
+  nombaTransferStatus    NombaTransferStatus @default(pending) @map("nomba_transfer_status")
+  createdAt              DateTime            @default(now()) @map("created_at") @db.Timestamp(0)
+  job                    Job                 @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@map("payouts")
+}
+
+enum ArtifactType {
+  before_photo
+  after_photo
+  file
+  checkin
+  checkout
+  signoff
+}
+
+model ProofArtifact {
+  id           String       @id @default(uuid()) @db.VarChar(36)
+  jobId        String       @map("job_id") @db.VarChar(36)
+  artifactType ArtifactType @map("artifact_type")
+  storageUrl   String       @map("storage_url") @db.VarChar(500)
+  contentHash  String       @map("content_hash") @db.VarChar(64)
+  metadataHash String       @map("metadata_hash") @db.VarChar(64)
+  gpsLat       Decimal?     @map("gps_lat") @db.Decimal(10, 7)
+  gpsLng       Decimal?     @map("gps_lng") @db.Decimal(10, 7)
+  deviceId     String?      @map("device_id") @db.VarChar(100)
+  capturedAt   DateTime     @map("captured_at") @db.Timestamp(0)
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamp(0)
+  job          Job          @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@map("proof_artifacts")
+}
+
+enum CheckinType {
+  checkin
+  checkout
+}
+
+model Checkin {
+  id        String      @id @default(uuid()) @db.VarChar(36)
+  jobId     String      @map("job_id") @db.VarChar(36)
+  userId    String      @map("user_id") @db.VarChar(36)
+  type      CheckinType
+  gpsLat    Decimal?    @map("gps_lat") @db.Decimal(10, 7)
+  gpsLng    Decimal?    @map("gps_lng") @db.Decimal(10, 7)
+  deviceId  String?     @map("device_id") @db.VarChar(100)
+  createdAt DateTime    @default(now()) @map("created_at") @db.Timestamp(0)
+  job       Job         @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("checkins")
+}
+
+enum ReasonCategory {
+  not_completed
+  wrong_spec
+  quality
+  no_show
+  other
+}
+
+enum DisputeStatus {
+  open
+  under_review
+  resolved
+}
+
+model Dispute {
+  id               String         @id @default(uuid()) @db.VarChar(36)
+  jobId            String         @unique @map("job_id") @db.VarChar(36)
+  buyerId          String         @map("buyer_id") @db.VarChar(36)
+  reasonCategory   ReasonCategory @map("reason_category")
+  description      String         @db.Text
+  buyerEvidenceUrl String?        @map("buyer_evidence_url") @db.VarChar(500)
+  status           DisputeStatus  @default(open)
+  resolution       Resolution?
+  resolutionNotes  String?        @map("resolution_notes") @db.Text
+  resolvedBy       String?        @map("resolved_by") @db.VarChar(36)
+  resolvedAt       DateTime?      @map("resolved_at") @db.Timestamp(0)
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamp(0)
+  job              Job            @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  buyer            User           @relation("BuyerDisputes", fields: [buyerId], references: [id])
+  resolver         User?          @relation("ResolvedDisputes", fields: [resolvedBy], references: [id])
+
+  @@map("disputes")
+}
+
+enum WorkscoreEventType {
+  job_completed
+  dispute_lost
+  dispute_won
+  earnings_milestone
+  recency_bonus
+  inactivity_penalty
+}
+
+model WorkscoreEvent {
+  id           String             @id @default(uuid()) @db.VarChar(36)
+  merchantId   String             @map("merchant_id") @db.VarChar(36)
+  jobId        String?            @map("job_id") @db.VarChar(36)
+  eventType    WorkscoreEventType @map("event_type")
+  scoreDelta   Int                @map("score_delta")
+  runningScore Int                @map("running_score")
+  createdAt    DateTime           @default(now()) @map("created_at") @db.Timestamp(0)
+  merchant     User               @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  job          Job?               @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  @@map("workscore_events")
+}
+
+enum NotificationType {
+  escrow_funded
+  proof_submitted
+  review_expiring
+  payout_released
+  dispute_filed
+  dispute_resolved
+  advance_paid
+  under_payment
+  over_payment_refund
+}
+
+model Notification {
+  id        String           @id @default(uuid()) @db.VarChar(36)
+  userId    String           @map("user_id") @db.VarChar(36)
+  jobId     String?          @map("job_id") @db.VarChar(36)
+  type      NotificationType
+  message   String           @db.Text
+  read      Boolean          @default(false)
+  createdAt DateTime         @default(now()) @map("created_at") @db.Timestamp(0)
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job       Job?             @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  @@map("notifications")
+}
+
+enum WebhookStatus {
+  received
+  processed
+  failed
+}
+
+model WebhookEvent {
+  id        String        @id @default(uuid()) @db.VarChar(36)
+  requestId String        @unique @map("request_id") @db.VarChar(200)
+  eventType String        @map("event_type") @db.VarChar(100)
+  payload   Json
+  status    WebhookStatus @default(received)
+  createdAt DateTime      @default(now()) @map("created_at") @db.Timestamp(0)
+
+  @@map("webhook_events")
+}
+
