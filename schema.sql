@@ -111,7 +111,7 @@ CREATE TABLE escrow_accounts (
 CREATE TABLE payouts (
   id VARCHAR(36) PRIMARY KEY,
   job_id VARCHAR(36) NOT NULL,
-  type ENUM('advance', 'final_payout', 'refund') NOT NULL,
+  `type` ENUM('advance', 'final_payout', 'refund') NOT NULL,
   amount_kobo BIGINT NOT NULL,
   fee_kobo BIGINT DEFAULT 0,
   recipient_account_number VARCHAR(20),
@@ -143,7 +143,7 @@ CREATE TABLE checkins (
   id VARCHAR(36) PRIMARY KEY,
   job_id VARCHAR(36) NOT NULL,
   user_id VARCHAR(36) NOT NULL,
-  type ENUM('checkin', 'checkout') NOT NULL,
+  `type` ENUM('checkin', 'checkout') NOT NULL,
   gps_lat DECIMAL(10,7),
   gps_lng DECIMAL(10,7),
   device_id VARCHAR(100),
@@ -196,7 +196,7 @@ CREATE TABLE notifications (
   id VARCHAR(36) PRIMARY KEY,
   user_id VARCHAR(36) NOT NULL,
   job_id VARCHAR(36),
-  type ENUM(
+  `type` ENUM(
     'escrow_funded',
     'proof_submitted',
     'review_expiring',
@@ -208,7 +208,7 @@ CREATE TABLE notifications (
     'over_payment_refund'
   ) NOT NULL,
   message TEXT NOT NULL,
-  read BOOLEAN DEFAULT false,
+  `read` BOOLEAN DEFAULT false,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE SET NULL
